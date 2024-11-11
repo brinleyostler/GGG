@@ -5,6 +5,8 @@ library(vroom)
 library(embed)
 library(discrim)
 library(kernlab)
+library(bonsai)
+library(lightgbm)
 
 
 #### READ IN DATA ####
@@ -20,7 +22,7 @@ ggg_train$type = factor(ggg_train$type)
 
 
 #### RECIPE ####
-### NEURAL NETWORK ####
+### BOOSTED TREES ####
 ggg_recipe <- recipe(type~., data=ggg_train) %>% 
   step_dummy(color) %>% 
   step_range(all_numeric_predictors())
@@ -28,18 +30,22 @@ ggg_recipe <- recipe(type~., data=ggg_train) %>%
 ggg_prepped = prep(ggg_recipe)
 baked <- bake(ggg_prepped, new_data = ggg_train)
 
-nn_model <- mlp(hidden_units = tune(),
-                epochs = 50) %>% # or 100 or 250
-  set_engine("keras") %>% # verbose = 0 prints off less
+### MODEL ####
+boost_model <- boost_tree(tree_depth=tune(),
+                          trees=tune(),
+                          learn_rate=tune()) %>%
+  set_engine("lightgbm") %>% #or "xgboost" but lightgbm is faster
   set_mode("classification")
 
 ## Put into a workflow
-nn_workflow <- workflow() %>% 
+boost_workflow <- workflow() %>% 
   add_recipe(ggg_recipe) %>% 
-  add_model(nn_model)
+  add_model(boost_model)
 
 ## Grid of values to tune over
-tuning_grid <- grid_regular(hidden_units(range=c(1, 75)),
+tuning_grid <- grid_regular(tree_depth(),
+                            trees(),
+                            learn_rate(),
                             levels=5)
 
 
@@ -48,23 +54,20 @@ tuning_grid <- grid_regular(hidden_units(range=c(1, 75)),
 folds <- vfold_cv(ggg_train, v=5, repeats=1)
 
 ## Run the CV
-tuned_nn <- nn_workflow %>% 
+tuned_boost <- boost_workflow %>% 
   tune_grid(resamples=folds,
             grid=tuning_grid,
             metrics=metric_set(roc_auc, f_meas, sens, recall,
-                               spec, precision, accuracy))
+                               accuracy))
 # metric_set(roc_auc, f_meas, sens, recall, spec, precision, accuracy)
 
-tuned_nn %>% collect_metrics() %>%
-  filter(.metric=="accuracy") %>%
-  ggplot(aes(x=hidden_units, y=mean)) + geom_line()
 
 ## Find best tuning parameters
-best_tune <- tuned_nn %>% 
-  select_best(metric="accuracy")
+best_tune <- tuned_boost %>% 
+  select_best(metric="roc_auc")
 
 #### Finalize the workflow and fit it ####
-final_wf <- nn_workflow %>% 
+final_wf <- boost_workflow %>% 
   finalize_workflow(best_tune) %>% 
   fit(data=ggg_train)
 
@@ -79,7 +82,7 @@ recipe_kaggle_submission <- ggg_preds %>%
   select(id, type)
 
 ## Write out file
-vroom_write(x=recipe_kaggle_submission, file="./NNPreds.csv", delim=",")
+vroom_write(x=recipe_kaggle_submission, file="./BoostPreds.csv", delim=",")
 
 
 
