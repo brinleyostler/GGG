@@ -22,4 +22,6 @@ The dataset used in this project is provided by Kaggle and includes the followin
 
 
 ## Model
+The final model I used was a Naive Bayes model. This gave me the best roc_auc (Receiver Operating Characteristic Area Under the Curve) score. My final Kaggle score was 0.75047.
+
 To view all models attempted in this competition, look through the git history for the GhostsGhoulsGoblins.R file.
